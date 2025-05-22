@@ -7,36 +7,6 @@
 #include <sys/time.h>
 
 /*
-This function prints a valuation to stdout
-Input: 
-    Valuation *v: the valuation to display
-Output:
-    None
-*/
-void display_valuation(const Valuation *v) {
-    printf("<Valuation>\n         {");
-    for (uint16_t j = 0; j < v->domain_size; ++j) {
-        // Convert the integer to a char starting at A for readability
-        if (j < v->domain_size - 1)
-            printf("%c, ", 'A' + v->domain[j]);
-            else
-            printf("%c", 'A' + v->domain[j]);
-    }
-    printf("}\n");
-    // Print the rows
-    for (uint32_t i = 0; i < v->size; ++i) {
-        printf("    [%u]: (", i);
-        for (uint16_t j = 0; j < v->domain_size; ++j) {
-            if (j < v->domain_size - 1)
-                printf("%u, ", v->rows[i].tuple[j]);
-            else
-                printf("%u", v->rows[i].tuple[j]);
-        }
-        printf(") -> %f\n", v->rows[i].value);
-    }
-}
-
-/*
 This function creates two valuations from the textbook example.
 
 Input: 
@@ -72,34 +42,6 @@ int textbook_example(Valuation **v1, Valuation **v2) {
     return 0;
 }
 
-int generate_pair(uint16_t domain_size, uint16_t overlap, uint8_t states_per_var, Valuation **v1, Valuation **v2) {
-    uint16_t domain1[domain_size];
-    uint16_t domain2[domain_size];
-    uint16_t target1[1] = {domain_size - 1};
-    uint16_t target2[1] = {domain_size - 1};
-
-    for (uint16_t i = 0; i < domain_size; ++i) {
-        domain1[i] = i;
-    }
-    for (uint16_t i = 0; i < domain_size; ++i) {
-        domain2[i] = i + domain_size - overlap;
-    }
-
-    Valuation *new_v1 = auto_generate_valuation(domain_size, domain1, 1, target1, states_per_var);
-    if (!new_v1) return -1;
-
-    Valuation *new_v2 = auto_generate_valuation(domain_size, domain2, 1, target2, states_per_var);
-    if (!new_v2) {
-        free_valuation(new_v1);
-        return -1;
-    }
-
-    *v1 = new_v1;
-    *v2 = new_v2;
-
-    return 0;
-}
-
 /*
 The main function is the entry point of the program.
 
@@ -120,7 +62,7 @@ int main() {
     states_per_var = 2;
     printf("States per variable: %u\n\n", states_per_var);
     for (domain_size = 1; domain_size <= 12; ++domain_size) {
-        printf("\n--- Domain size: %u---\n", domain_size);
+        printf("\n--- Domain size: %u ---\n", domain_size);
         if(generate_pair(domain_size, overlap, states_per_var, &v1, &v2)) {
             fprintf(stderr, "Failed to create valuations\n");
             return -1;

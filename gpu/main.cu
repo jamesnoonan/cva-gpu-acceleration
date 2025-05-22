@@ -1,21 +1,104 @@
-Valuation* transfer_valuation_to_gpu(Valuation *host_val) {
-    Valuation *device_val;
+#include <stdio.h>
+#include <cuda_runtime.h>
+#include "combination.cuh"
+#include "../valuation.h"
 
-    // TODO: copy the valuation to the GPU
+#define HANDLE_ERROR(e)                                                       \
+  do {                                                                        \
+    if ((e) != cudaSuccess) {                                                 \
+      fprintf(stderr, "[CUDA Error] %s:%d: %s\n", __FILE__, __LINE__,           \
+              cudaGetErrorString(e));                                         \
+      exit(EXIT_FAILURE);                                                     \
+    }                                                                         \
+  } while (0)
+
+
+// Kernel to fix the tuple pointers on the device
+__global__ void fix_tuple_pointers(ValuationRow *rows, uint8_t *tuple_block, uint32_t size, uint16_t domain_size) {
+    uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size) {
+        rows[i].tuple = tuple_block + i * domain_size;
+    }
+}
+
+__host__ Valuation* transfer_valuation_to_gpu(Valuation *host_val) {
+    Valuation *device_val = NULL;
+    ValuationRow *device_rows;
+    uint8_t *device_tuple_block;
+    uint16_t *device_domain, *device_target;
+
+    // Allocate device memory for Valuation struct and its members
+    HANDLE_ERROR(cudaMalloc((void**) &device_val, sizeof(Valuation))); // Allocate device memory for Valuation struct
+    HANDLE_ERROR(cudaMalloc((void**) &device_rows, sizeof(ValuationRow) * host_val->size)); // Allocate device memory for rows
+    HANDLE_ERROR(cudaMalloc((void**) &device_tuple_block, host_val->size * host_val->domain_size)); // Allocate device memory for tuple block
+    HANDLE_ERROR(cudaMalloc((void**) &device_domain, sizeof(uint16_t) * host_val->domain_size)); // Copy domain array
+    HANDLE_ERROR(cudaMalloc((void**) &device_target, sizeof(uint16_t) * host_val->target_size));
+
+    // Copy the data from host to device
+    HANDLE_ERROR(cudaMemcpy(device_rows, host_val->rows, sizeof(ValuationRow) * host_val->size, cudaMemcpyHostToDevice));
+    HANDLE_ERROR(cudaMemcpy(device_tuple_block,
+               host_val->rows[0].tuple,
+               host_val->size * host_val->domain_size,
+               cudaMemcpyHostToDevice)); // Copy the entire tuple block from host
+
+    HANDLE_ERROR(cudaMemcpy(device_domain, host_val->domain, sizeof(uint16_t) * host_val->domain_size, cudaMemcpyHostToDevice));
+    HANDLE_ERROR(cudaMemcpy(device_target, host_val->target, sizeof(uint16_t) * host_val->target_size, cudaMemcpyHostToDevice)); // Copy target array
+
+    // Launch kernel to fix the tuple pointers on the device
+    uint32_t threads_per_block = 256;
+    uint32_t blocks = (host_val->size + threads_per_block - 1) / threads_per_block;
+    fix_tuple_pointers<<<blocks, threads_per_block>>>(device_rows, device_tuple_block, host_val->size, host_val->domain_size);
+
+    cudaDeviceSynchronize();
+    HANDLE_ERROR(cudaGetLastError());
+
+    // Set properties
+    Valuation temp_val;
+    temp_val.size = host_val->size;
+    temp_val.domain_size = host_val->domain_size;
+    temp_val.target_size = host_val->target_size;
+    temp_val.rows = device_rows;
+    temp_val.domain = device_domain;
+    temp_val.target = device_target;
+
+    HANDLE_ERROR(cudaMemcpy(device_val, &temp_val, sizeof(Valuation), cudaMemcpyHostToDevice));
 
     return device_val;
 }
 
-void transfer_valuation_from_gpu(Valuation *device_val, Valuation *host_val) {
-    Valuation *device_val;
+__host__ void transfer_valuation_from_gpu(Valuation *host_val, Valuation *device_val) {
+    Valuation temp_device_val;
 
-    // TODO: copy the valuation from the GPU
+    // Step 1: Copy the Valuation struct from device
+    HANDLE_ERROR(cudaMemcpy(&temp_device_val, device_val, sizeof(Valuation), cudaMemcpyDeviceToHost));
 
-    return device_val;
+    // Step 2: Allocate temp buffer and copy device ValuationRow array
+    ValuationRow *temp_device_rows = (ValuationRow*) malloc(sizeof(ValuationRow) * host_val->size);
+    HANDLE_ERROR(cudaMemcpy(temp_device_rows,
+                            temp_device_val.rows,
+                            sizeof(ValuationRow) * host_val->size,
+                            cudaMemcpyDeviceToHost));
+
+    // Step 3: Copy the tuple block
+    HANDLE_ERROR(cudaMemcpy(host_val->rows[0].tuple,
+                            temp_device_rows[0].tuple,
+                            host_val->size * host_val->domain_size,
+                            cudaMemcpyDeviceToHost));
+
+    // Step 4: Copy ValuationRow data to host_val->rows and update tuple pointers
+    for (uint32_t i = 0; i < host_val->size; ++i) {
+        host_val->rows[i].value = temp_device_rows[i].value;
+        host_val->rows[i].tuple = host_val->rows[0].tuple + i * host_val->domain_size;
+        host_val->rows[i].incompatible = temp_device_rows[i].incompatible;
+    }
+
+    free(temp_device_rows);
 }
 
-int main() {
-    Valuation *v1, *v2;
+
+
+__host__ int main() {
+    Valuation *v1, *v2, *dst, *device_v1, *device_v2, *device_dst;
     uint16_t domain_size, overlap;
     uint8_t states_per_var;
 
@@ -25,29 +108,36 @@ int main() {
     states_per_var = 2;
     printf("States per variable: %u\n\n", states_per_var);
 
-    for (domain_size = 1; domain_size <= 12; ++domain_size) {
-        printf("\n--- Domain size: %u---\n", domain_size);
+    for (domain_size = 1; domain_size <= 20; ++domain_size) {
+        printf("\n--- Domain size: %u ---\n", domain_size);
         if(generate_pair(domain_size, overlap, states_per_var, &v1, &v2)) {
             fprintf(stderr, "Failed to create valuations\n");
             return -1;
         }
 
-        Valuation* dst = alloc_combined_valuation(v1, v2);
+        dst = alloc_combined_valuation(v1, v2); // TODO: this could eventually be done on the GPU
         if (!dst) {
             fprintf(stderr, "Failed to allocate combined valuation\n");
             return -1;
         }
 
-        transfer_valuation_to_gpu(v1);
-        transfer_valuation_to_gpu(v2);
-        transfer_valuation_to_gpu(dst);
-        // TODO: Perform combination
+        
+        device_v1 = transfer_valuation_to_gpu(v1);
+        device_v2 = transfer_valuation_to_gpu(v2);
+        device_dst = transfer_valuation_to_gpu(dst);
 
+        
+        int combine_status = combine_valuations(device_dst, device_v1, device_v2, dst, v1, v2);
+        
         if (combine_status != 0) {
             fprintf(stderr, "Failed to combine valuations\n");
             free_valuation(dst);
             return -1;
         }
+        
+        // Transfer the combined valuation back to the host
+        transfer_valuation_from_gpu(dst, device_dst);
+        // return -1;
 
         printf("Combined valuation size: %u\n", dst->size);
         // display_valuation(dst);

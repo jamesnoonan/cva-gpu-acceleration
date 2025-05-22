@@ -3,12 +3,12 @@ CC = gcc
 CFLAGS = -Wall -Wextra -std=c11 
 
 # Directories
-SRC_DIR = cpu
-OUT_DIR = out
+SRC_DIR = ./
+OUT_DIR = ../out
 
 # Source files
 SRCS = $(wildcard $(SRC_DIR)/*.c)
-EXTRA_SRCS = valuation.c
+EXTRA_SRCS = ../valuation.c
 
 # Object files
 CPU_OBJS = $(patsubst $(SRC_DIR)/%.c,$(OUT_DIR)/%.o,$(SRCS))

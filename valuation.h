@@ -1,5 +1,9 @@
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef VALUATION_H
 #define VALUATION_H
 
@@ -35,6 +39,9 @@ typedef struct {
     uint16_t target_size;
 } Valuation;
 
+// Print the valuation
+void display_valuation(const Valuation *v);
+
 // Allocate the memory for a valuation
 Valuation *allocate_valuation(
     uint32_t size,
@@ -49,18 +56,20 @@ Valuation* alloc_combined_valuation(Valuation *v1, Valuation *v2);
 Valuation *create_valuation(
     uint32_t size,
     uint16_t domain_size,
-    uint16_t domain[domain_size],
+    uint16_t *domain,
     uint16_t target_size,
-    uint16_t target[target_size],
-    uint8_t tuples[size][domain_size],
-    double values[size]);
+    uint16_t *target,
+    uint8_t *tuples,
+    double *values);
 
 Valuation *auto_generate_valuation(
     uint16_t domain_size,
-    uint16_t domain[domain_size],
+    uint16_t *domain,
     uint16_t target_size,
-    uint16_t target[target_size],
+    uint16_t *target,
     uint8_t states_per_var);
+
+int generate_pair(uint16_t domain_size, uint16_t overlap, uint8_t states_per_var, Valuation **v1, Valuation **v2);
 
 // Free the memory of a valuation
 void free_valuation(Valuation *v);
@@ -92,4 +101,8 @@ void merge_tuples(
     const uint32_t *v2_indices, uint32_t common_size);
 
 
+#endif
+
+#ifdef __cplusplus
+}
 #endif

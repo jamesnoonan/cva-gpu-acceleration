@@ -5,6 +5,36 @@
 #include "valuation.h"
 
 /*
+This function prints a valuation to stdout
+Input: 
+    Valuation *v: the valuation to display
+Output:
+    None
+*/
+void display_valuation(const Valuation *v) {
+    printf("<Valuation>\n         {");
+    for (uint16_t j = 0; j < v->domain_size; ++j) {
+        // Convert the integer to a char starting at A for readability
+        if (j < v->domain_size - 1)
+            printf("%c, ", 'A' + v->domain[j]);
+            else
+            printf("%c", 'A' + v->domain[j]);
+    }
+    printf("}\n");
+    // Print the rows
+    for (uint32_t i = 0; i < v->size; ++i) {
+        printf("    [%u]: (", i);
+        for (uint16_t j = 0; j < v->domain_size; ++j) {
+            if (j < v->domain_size - 1)
+                printf("%u, ", v->rows[i].tuple[j]);
+            else
+                printf("%u", v->rows[i].tuple[j]);
+        }
+        printf(") -> %f\n", v->rows[i].value);
+    }
+}
+
+/*
 This function allocates memory for a single Valuation
 
 Input: 
@@ -102,11 +132,11 @@ Output:
 Valuation *create_valuation(
     uint32_t size,
     uint16_t domain_size,
-    uint16_t domain[domain_size],
+    uint16_t *domain,
     uint16_t target_size,
-    uint16_t target[target_size],
-    uint8_t tuples[size][domain_size],
-    double values[size])
+    uint16_t *target,
+    uint8_t *tuples,
+    double *values)
 {
     uint16_t *new_domain = (uint16_t *) malloc(domain_size * sizeof(uint16_t));
     if (!new_domain) return NULL;
@@ -149,9 +179,9 @@ Output:
 */
 Valuation *auto_generate_valuation(
     uint16_t domain_size,
-    uint16_t domain[domain_size],
+    uint16_t *domain,
     uint16_t target_size,
-    uint16_t target[target_size],
+    uint16_t *target,
     uint8_t states_per_var)
 {
     uint32_t size = 1;
@@ -172,10 +202,38 @@ Valuation *auto_generate_valuation(
         values[i] = 1.0 / size;
     }
 
-    Valuation *v = create_valuation(size, domain_size, domain, target_size, target, tuples, values);
+    Valuation *v = create_valuation(size, domain_size, domain, target_size, target, &tuples[0][0], values);
     if (!v) return NULL;
 
     return v;
+}
+
+int generate_pair(uint16_t domain_size, uint16_t overlap, uint8_t states_per_var, Valuation **v1, Valuation **v2) {
+    uint16_t domain1[domain_size];
+    uint16_t domain2[domain_size];
+    uint16_t target1[1] = {domain_size - 1};
+    uint16_t target2[1] = {domain_size - 1};
+
+    for (uint16_t i = 0; i < domain_size; ++i) {
+        domain1[i] = i;
+    }
+    for (uint16_t i = 0; i < domain_size; ++i) {
+        domain2[i] = i + domain_size - overlap;
+    }
+
+    Valuation *new_v1 = auto_generate_valuation(domain_size, domain1, 1, target1, states_per_var);
+    if (!new_v1) return -1;
+
+    Valuation *new_v2 = auto_generate_valuation(domain_size, domain2, 1, target2, states_per_var);
+    if (!new_v2) {
+        free_valuation(new_v1);
+        return -1;
+    }
+
+    *v1 = new_v1;
+    *v2 = new_v2;
+
+    return 0;
 }
 
 /*
@@ -394,5 +452,4 @@ void merge_tuples(
         }
         dst[idx++] = tuple2[j];
     }
-
 }
