@@ -1,20 +1,29 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include "../valuation.h"
 #include "combination.h"
+#include <sys/time.h>
 
-// Display the contents of a valuation
+/*
+This function prints a valuation to stdout
+Input: 
+    Valuation *v: the valuation to display
+Output:
+    None
+*/
 void display_valuation(const Valuation *v) {
     printf("<Valuation>\n         {");
     for (uint16_t j = 0; j < v->domain_size; ++j) {
+        // Convert the integer to a char starting at A for readability
         if (j < v->domain_size - 1)
-            // convert intger to char starting at A
             printf("%c, ", 'A' + v->domain[j]);
             else
             printf("%c", 'A' + v->domain[j]);
     }
     printf("}\n");
+    // Print the rows
     for (uint32_t i = 0; i < v->size; ++i) {
         printf("    [%u]: (", i);
         for (uint16_t j = 0; j < v->domain_size; ++j) {
@@ -27,62 +36,144 @@ void display_valuation(const Valuation *v) {
     }
 }
 
-int main() {
-    printf("\n\n");
+/*
+This function creates two valuations from the textbook example.
 
-    uint16_t *domain = (uint16_t *)malloc(2 * sizeof(uint16_t));
-    if (domain != NULL) {
-        domain[0] = 0;
-        domain[1] = 1;
-    }
+Input: 
+    Valuation **v1: pointer to the first valuation
+    Valuation **v2: pointer to the second valuation
+    
+Output: 
+    int: 0 on success, -1 on failure
+*/
+int textbook_example(Valuation **v1, Valuation **v2) {
+    uint16_t domain1[2] = {0, 1};
+    uint16_t target1[1] = {0};
+    uint8_t tuples1[4][2] = {{0, 0}, {0, 1}, {1, 0}, {1, 1}};
+    double values1[4] = {0.7, 0.3, 0.4, 0.6};
 
-    uint16_t *target = (uint16_t *)malloc(1 * sizeof(uint16_t));
-    if (target != NULL) {
-        target[0] = 0;
-    }
+    Valuation *new_v1 = create_valuation(4, 2, domain1, 1, target1, tuples1, values1);
+    if (!new_v1) return -1;
 
-    uint16_t domain_size = 2;
-    uint16_t target_size = 1;
-    uint32_t num_rows = 4;
+    uint16_t domain2[2] = {1, 2};
+    uint16_t target2[1] = {2};
+    uint8_t tuples2[4][2] = {{0, 0}, {0, 1}, {1, 0}, {1, 1}};
+    double values2[4] = {0.1, 0.9, 0.8, 0.2};
 
-    // Allocate the valuation
-    Valuation *v = allocate_valuation(num_rows, domain, domain_size, target, target_size);
-    if (!v) {
-        fprintf(stderr, "Failed to allocate valuation.\n");
-        return 1;
-    }
-
-    uint8_t tuples[4][2] = {{0, 0}, {0, 1}, {1, 0}, {1, 1}};
-    double values[4] = {0.1, 0.2, 0.3, 0.4};
-
-    memcpy(v->rows->tuple, tuples, domain_size * num_rows);
-    // Populate the valuation
-    for (uint32_t i = 0; i < num_rows; ++i) v->rows[i].value = values[i];
-
-    display_valuation(v);
-
-    Valuation* v1 = v;
-    Valuation* v2 = v;
-
-    Valuation* dst = alloc_combined_valuation(v1, v2);
-    if (!dst) {
-        fprintf(stderr, "Failed to allocate combined valuation\n");
+    Valuation *new_v2 = create_valuation(4, 2, domain2, 1, target2, tuples2, values2);
+    if (!new_v2) {
+        free_valuation(new_v1);
         return -1;
     }
 
-    // Combine the valuations
-    if (combine_valuations(dst, v1, v2) != 0) {
-        fprintf(stderr, "Failed to combine valuations\n");
-        free_valuation(dst);
-        return -1;
-    }
-
-    display_valuation(dst);
-
-    // Free the allocated memory
-    free_valuation(dst);
-    free_valuation(v1);
-    // free_valuation(v2);
+    *v1 = new_v1;
+    *v2 = new_v2;
 
     return 0;
 }
+
+int generate_pair(uint16_t domain_size, uint16_t overlap, uint8_t states_per_var, Valuation **v1, Valuation **v2) {
+    uint16_t domain1[domain_size];
+    uint16_t domain2[domain_size];
+    uint16_t target1[1] = {domain_size - 1};
+    uint16_t target2[1] = {domain_size - 1};
+
+    for (uint16_t i = 0; i < domain_size; ++i) {
+        domain1[i] = i;
+    }
+    for (uint16_t i = 0; i < domain_size; ++i) {
+        domain2[i] = i + domain_size - overlap;
+    }
+
+    Valuation *new_v1 = auto_generate_valuation(domain_size, domain1, 1, target1, states_per_var);
+    if (!new_v1) return -1;
+
+    Valuation *new_v2 = auto_generate_valuation(domain_size, domain2, 1, target2, states_per_var);
+    if (!new_v2) {
+        free_valuation(new_v1);
+        return -1;
+    }
+
+    *v1 = new_v1;
+    *v2 = new_v2;
+
+    return 0;
+}
+
+/*
+The main function is the entry point of the program.
+
+Input: 
+    None
+    
+Output:
+    int: 0 on success, -1 on failure
+*/
+int main() {
+    Valuation *v1, *v2;
+    uint16_t domain_size, overlap;
+    uint8_t states_per_var;
+
+    printf("--- Valuation Combination ---\n");
+    
+    overlap = 0;
+    states_per_var = 2;
+    printf("States per variable: %u\n\n", states_per_var);
+    for (domain_size = 1; domain_size <= 12; ++domain_size) {
+        printf("\n--- Domain size: %u---\n", domain_size);
+        if(generate_pair(domain_size, overlap, states_per_var, &v1, &v2)) {
+            fprintf(stderr, "Failed to create valuations\n");
+            return -1;
+        }
+
+        Valuation* dst = alloc_combined_valuation(v1, v2);
+        if (!dst) {
+            fprintf(stderr, "Failed to allocate combined valuation\n");
+            return -1;
+        }
+
+        // Start the timer
+        struct timeval start, end;
+        gettimeofday(&start, NULL);
+
+        // Combine the valuations
+        int combine_status = combine_valuations(dst, v1, v2);
+
+        gettimeofday(&end, NULL);
+        long seconds = end.tv_sec - start.tv_sec;
+        long microseconds = end.tv_usec - start.tv_usec;
+        long total_microseconds = (seconds * 1000000) + microseconds;
+
+        printf("Elapsed time: %ld microseconds\n", total_microseconds);
+
+        if (combine_status != 0) {
+            fprintf(stderr, "Failed to combine valuations\n");
+            free_valuation(dst);
+            return -1;
+        }
+
+        printf("Combined valuation size: %u\n", dst->size);
+        // display_valuation(dst);
+
+        // Free the allocated memory
+        free_valuation(dst);
+        free_valuation(v1);
+        free_valuation(v2);
+    }
+
+    return 0;
+}
+
+
+// uint16_t domain[4] = {0, 1, 2, 3};
+// uint16_t target[1] = {3};
+
+// uint8_t states_per_var = 2;
+// Valuation* test = auto_generate_valuation(4, domain, 1, target, states_per_var);
+// if (!test) {
+//     fprintf(stderr, "Failed to create valuation\n");
+//     return -1;
+// }
+// printf("\n\n");
+// display_valuation(test);
+// printf("\n\n");

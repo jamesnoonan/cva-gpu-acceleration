@@ -46,6 +46,22 @@ Valuation *allocate_valuation(
 // Allocate the memory for a combined valuation
 Valuation* alloc_combined_valuation(Valuation *v1, Valuation *v2);
 
+Valuation *create_valuation(
+    uint32_t size,
+    uint16_t domain_size,
+    uint16_t domain[domain_size],
+    uint16_t target_size,
+    uint16_t target[target_size],
+    uint8_t tuples[size][domain_size],
+    double values[size]);
+
+Valuation *auto_generate_valuation(
+    uint16_t domain_size,
+    uint16_t domain[domain_size],
+    uint16_t target_size,
+    uint16_t target[target_size],
+    uint8_t states_per_var);
+
 // Free the memory of a valuation
 void free_valuation(Valuation *v);
 

@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
@@ -57,6 +58,14 @@ Valuation *allocate_valuation(
     return v;
 }
 
+/*
+This function allocates memory for a combination result. Domain and target will be allocated and set to the correct values.
+Input: 
+    Valuation *v1: the first valuation
+    Valuation *v2: the second valuation
+Output:
+    Valuation *dst: the combined valuation
+*/
 Valuation* alloc_combined_valuation(Valuation *v1, Valuation *v2) {
     uint32_t size = v1->size * v2->size;
     uint16_t domain_size, target_size;
@@ -78,9 +87,102 @@ Valuation* alloc_combined_valuation(Valuation *v1, Valuation *v2) {
 }
 
 /*
+This function creates a Valuation struct from the given parameters.
+Input: 
+    uint32_t size: the number of rows in the valuation
+    uint16_t domain_size: the number of variables in the domain
+    uint16_t domain[domain_size]: the variables in the domain
+    uint16_t target_size: the number of variables in the target domain
+    uint16_t target[target_size]: the variables in the target domain
+    uint8_t tuples[size][domain_size]: the tuples for each row
+    double values[size]: the semiring values for each row
+Output:
+    Valuation *v: the created Valuation struct
+*/
+Valuation *create_valuation(
+    uint32_t size,
+    uint16_t domain_size,
+    uint16_t domain[domain_size],
+    uint16_t target_size,
+    uint16_t target[target_size],
+    uint8_t tuples[size][domain_size],
+    double values[size])
+{
+    uint16_t *new_domain = (uint16_t *) malloc(domain_size * sizeof(uint16_t));
+    if (!new_domain) return NULL;
+
+    uint16_t *new_target = (uint16_t *) malloc(target_size * sizeof(uint16_t));
+    if (!new_target) {
+        free(new_domain);
+        return NULL;
+    }
+
+    memcpy(new_domain, domain, domain_size * sizeof(uint16_t));
+    memcpy(new_target, target, target_size * sizeof(uint16_t));
+    Valuation *v = allocate_valuation(size, new_domain, domain_size, new_target, target_size);
+
+    if (!v) {
+        free(new_domain);
+        free(new_target);
+        return NULL;
+    }
+
+    // Populate the valuation
+    memcpy(v->rows->tuple, tuples, domain_size * size);
+    for (uint32_t i = 0; i < size; ++i) {
+        v->rows[i].value = values[i];
+    }
+
+    return v;
+}
+
+/*
+This function creates a Valuation struct with automatically generated tuples and values.
+Input: 
+    uint16_t domain_size: the number of variables in the domain
+    uint16_t domain[domain_size]: the variables in the domain
+    uint16_t target_size: the number of variables in the target domain
+    uint16_t target[target_size]: the variables in the target domain
+    uint8_t states_per_var: the number of states per variable
+Output:
+    Valuation *v: the generated Valuation struct
+*/
+Valuation *auto_generate_valuation(
+    uint16_t domain_size,
+    uint16_t domain[domain_size],
+    uint16_t target_size,
+    uint16_t target[target_size],
+    uint8_t states_per_var)
+{
+    uint32_t size = 1;
+    for (uint16_t i = 0; i < domain_size; ++i) {
+        size *= states_per_var;
+    }
+
+    uint8_t tuples[size][domain_size];
+    double values[size];
+    uint32_t divisor;
+
+    for (uint32_t i = 0; i < size; ++i) {
+        divisor = 1;
+        for (uint32_t j = 0; j < domain_size; ++j) {
+            tuples[i][j] = (i / divisor) % states_per_var;
+            divisor *= states_per_var;
+        }
+        values[i] = 1.0 / size;
+    }
+
+    Valuation *v = create_valuation(size, domain_size, domain, target_size, target, tuples, values);
+    if (!v) return NULL;
+
+    return v;
+}
+
+/*
 This function frees the memory allocated for a Valuation struct
 Input: 
     Valuation *v: the Valuation struct to free
+Output: None
 */
 void free_valuation(Valuation *v) {
     if (!v) return;
@@ -101,14 +203,26 @@ void free_valuation(Valuation *v) {
     free(v);
 }
 
+/*
+This function computes the union of two domains, and will need to be freed by the caller.
+Input: 
+    const uint16_t *dom1: the first domain
+    uint16_t n1: the size of the first domain
+    const uint16_t *dom2: the second domain
+    uint16_t n2: the size of the second domain
+    uint16_t *out_size: pointer to store the size of the resulting domain
+Output:
+    uint16_t *domain: the resulting domain containing unique elements from either domain
+*/
 uint16_t *union_domain(
     const uint16_t *dom1, uint16_t n1,
     const uint16_t *dom2, uint16_t n2,
     uint16_t *out_size)
 {
-    uint16_t *temp = (uint16_t *) malloc((n1 + n2) * sizeof(uint16_t));
-    if (!temp) return NULL;
-    memcpy(temp, dom1, n1);
+    uint16_t *domain = (uint16_t *) malloc((n1 + n2) * sizeof(uint16_t));
+    if (!domain) return NULL;
+
+    memcpy(domain, dom1, n1 * sizeof(uint16_t));
     uint32_t count = n1;
 
     for (uint32_t i = 0; i < n2; ++i)
@@ -122,17 +236,24 @@ uint16_t *union_domain(
                 break;
             }
         }
-        if (!exists) temp[count++] = dom2[i];
+        if (!exists) domain[count++] = dom2[i];
     }
 
-    uint16_t *result = (uint16_t *) malloc(count * sizeof(uint16_t));
-    memcpy(result, temp, count);
-    free(temp);
-    
     *out_size = count;
-    return result;
+    return domain;
 }
 
+/*
+This function computes the intersection of two domains, and will need to be freed by the caller.
+Input: 
+    const uint16_t *dom1: the first domain
+    uint16_t n1: the size of the first domain
+    const uint16_t *dom2: the second domain
+    uint16_t n2: the size of the second domain
+    uint16_t *out_size: pointer to store the size of the resulting domain
+Output:
+    uint16_t *domain: the resulting domain containing unique elements from both domains
+*/
 uint16_t *intersection_domain(
     const uint16_t *dom1, uint16_t n1,
     const uint16_t *dom2, uint16_t n2,
@@ -174,6 +295,18 @@ uint16_t *intersection_domain(
     return result;
 }
 
+/*
+This function computes the common variables between two domains and returns their indices in two arrays.
+Input: 
+    const uint16_t *domain1: the first domain
+    uint16_t size1: the size of the first domain
+    const uint16_t *domain2: the second domain
+    uint16_t size2: the size of the second domain
+    uint32_t **v1_indices: pointer to store the indices of the first domain
+    uint32_t **v2_indices: pointer to store the indices of the second domain
+Output:
+    uint32_t count: the number of common variables
+*/
 uint32_t get_common_vars(const uint16_t *domain1, uint16_t size1,
                          const uint16_t *domain2, uint16_t size2,
                          uint32_t **v1_indices, uint32_t **v2_indices) {
@@ -203,6 +336,17 @@ uint32_t get_common_vars(const uint16_t *domain1, uint16_t size1,
     return count;
 }
 
+/*
+This function checks if two tuples match at the provided indices.
+Input: 
+    const uint8_t *tuple1: the first tuple
+    const uint8_t *tuple2: the second tuple
+    const uint32_t *v1_indices: indices of the first tuple
+    const uint32_t *v2_indices: indices of the second tuple
+    uint32_t num_indices: number of indices to check
+Output:
+    int: 1 if tuples match, 0 otherwise
+*/
 int tuples_match(const uint8_t *tuple1, const uint8_t *tuple2,
                   const uint32_t *v1_indices, const uint32_t *v2_indices,
                   uint32_t num_indices)
@@ -217,6 +361,18 @@ int tuples_match(const uint8_t *tuple1, const uint8_t *tuple2,
     return 1;
 }
 
+/*
+This function merges two tuples into a destination tuple, excluding the common variables from the second tuple.
+Input: 
+    uint8_t *dst: the destination tuple
+    const uint8_t *tuple1: the first tuple
+    uint32_t size1: size of the first tuple
+    const uint8_t *tuple2: the second tuple
+    uint32_t size2: size of the second tuple
+    const uint32_t *v2_indices: indices of the second tuple
+    uint32_t common_size: number of common variables
+Output: None
+*/
 void merge_tuples(
     uint8_t *dst,
     const uint8_t *tuple1, uint32_t size1,
