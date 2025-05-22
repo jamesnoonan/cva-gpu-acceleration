@@ -2,3 +2,5 @@ out/
 logs/
 *.sh
 *.o
+results/data/
+results/figures/

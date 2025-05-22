@@ -39,32 +39,42 @@ __global__ void combine_valuations_kernel(
     Valuation *v1,
     Valuation *v2,
     uint32_t dst_tuple_size,
+    uint32_t *v1_indices,
     uint32_t *v2_indices,
     uint32_t common_var_size)
 {
-    uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    uint32_t work_per_thread = 1;
+    uint32_t thread_id = blockIdx.x * blockDim.x + threadIdx.x;
     uint32_t total = v1->size * v2->size;
 
-    if (idx >= total) return;
+    uint32_t start_idx = thread_id * work_per_thread;
+    uint32_t end_idx = min(start_idx + work_per_thread, total);
 
-    uint32_t i = idx / v2->size;
-    uint32_t j = idx % v2->size;
+    uint8_t incompatible = 0, v1_tuple_val, v2_tuple_val;
+    for (uint32_t idx = start_idx; idx < end_idx; ++idx) {
+        uint32_t i = idx / v2->size;
+        uint32_t j = idx % v2->size;
 
-    // Skip if any input row is incompatible
-    if (v1->rows[i].incompatible || v2->rows[j].incompatible)
-        return;
+        incompatible = v1->rows[i].incompatible + v2->rows[j].incompatible;
 
-    ValuationRow *out_row = &dst->rows[idx];
+        for (uint32_t k = 0; k < common_var_size; ++k) {
+            v1_tuple_val = v1->rows[i].tuple[v1_indices[k]];
+            v2_tuple_val = v2->rows[j].tuple[v2_indices[k]];
+            incompatible += abs(v1_tuple_val - v2_tuple_val);
+        }
 
-    merge_tuples_device(
-        out_row->tuple,
-        v1->rows[i].tuple, v1->domain_size,
-        v2->rows[j].tuple, v2->domain_size,
-        v2_indices,
-        common_var_size);
+        ValuationRow *out_row = &dst->rows[idx];
 
-    out_row->value = v1->rows[i].value * v2->rows[j].value;
-    out_row->incompatible = 0;
+        merge_tuples_device(
+            out_row->tuple,
+            v1->rows[i].tuple, v1->domain_size,
+            v2->rows[j].tuple, v2->domain_size,
+            v2_indices,
+            common_var_size);
+
+        out_row->value = v1->rows[i].value * v2->rows[j].value;
+        out_row->incompatible = incompatible;
+    }
 }
 
 
@@ -88,23 +98,33 @@ int combine_valuations(Valuation *device_dst, Valuation *device_v1, Valuation *d
         return -1;
     }
 
-    // Copy v2_indices to device (v1_indices not needed for merge)
+    // Copy v1_indices to device
+    uint32_t *d_v1_indices;
+    cudaMalloc(&d_v1_indices, sizeof(uint32_t) * common_var_size);
+    cudaMemcpy(d_v1_indices, v1_indices, sizeof(uint32_t) * common_var_size, cudaMemcpyHostToDevice);
+
+    // Copy v2_indices to device
     uint32_t *d_v2_indices;
     cudaMalloc(&d_v2_indices, sizeof(uint32_t) * common_var_size);
     cudaMemcpy(d_v2_indices, v2_indices, sizeof(uint32_t) * common_var_size, cudaMemcpyHostToDevice);
 
     // Compute total output size
     uint32_t total = v1->size * v2->size;
-    dst->size = total;  // May trim later
+    dst->size = total;
 
-    // Launch kernel
+    uint32_t work_per_thread = 1;
+    uint32_t threads_needed = (total + work_per_thread - 1) / work_per_thread;
+
     uint32_t threads_per_block = 256;
-    uint32_t blocks = (total + threads_per_block - 1) / threads_per_block;
+    uint32_t blocks = (threads_needed + threads_per_block - 1) / threads_per_block;
+
+    // printf("Combining valuations with %d blocks and %d threads per block\n", blocks, threads_per_block);
 
     HANDLE_ERROR(cudaEventRecord(comp_start)); 
     combine_valuations_kernel<<<blocks, threads_per_block>>>(
         device_dst, device_v1, device_v2,
         dst->domain_size,
+        d_v1_indices,
         d_v2_indices,
         common_var_size);
 
@@ -122,8 +142,10 @@ int combine_valuations(Valuation *device_dst, Valuation *device_v1, Valuation *d
         exit(EXIT_FAILURE);
     }
 
-    printf("Computation time: %.3f ms\n", comp_millis);
+    // Print milliseconds
+    printf("%.6f,", comp_millis);
 
+    cudaFree(d_v1_indices);
     cudaFree(d_v2_indices);
     free(v1_indices);
     free(v2_indices);

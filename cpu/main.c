@@ -22,7 +22,7 @@ int textbook_example(Valuation **v1, Valuation **v2) {
     uint8_t tuples1[4][2] = {{0, 0}, {0, 1}, {1, 0}, {1, 1}};
     double values1[4] = {0.7, 0.3, 0.4, 0.6};
 
-    Valuation *new_v1 = create_valuation(4, 2, domain1, 1, target1, tuples1, values1);
+    Valuation *new_v1 = create_valuation(4, 2, domain1, 1, target1, &tuples1[0][0], values1);
     if (!new_v1) return -1;
 
     uint16_t domain2[2] = {1, 2};
@@ -30,7 +30,7 @@ int textbook_example(Valuation **v1, Valuation **v2) {
     uint8_t tuples2[4][2] = {{0, 0}, {0, 1}, {1, 0}, {1, 1}};
     double values2[4] = {0.1, 0.9, 0.8, 0.2};
 
-    Valuation *new_v2 = create_valuation(4, 2, domain2, 1, target2, tuples2, values2);
+    Valuation *new_v2 = create_valuation(4, 2, domain2, 1, target2, &tuples2[0][0], values2);
     if (!new_v2) {
         free_valuation(new_v1);
         return -1;
@@ -61,8 +61,9 @@ int main() {
     overlap = 0;
     states_per_var = 2;
     printf("States per variable: %u\n\n", states_per_var);
-    for (domain_size = 1; domain_size <= 12; ++domain_size) {
-        printf("\n--- Domain size: %u ---\n", domain_size);
+    printf("arg_domain_size,output_size,time\n");
+    for (domain_size = 1; domain_size <= 13; ++domain_size) {
+        printf("%u,", domain_size);
         if(generate_pair(domain_size, overlap, states_per_var, &v1, &v2)) {
             fprintf(stderr, "Failed to create valuations\n");
             return -1;
@@ -73,6 +74,8 @@ int main() {
             fprintf(stderr, "Failed to allocate combined valuation\n");
             return -1;
         }
+
+        printf("%u,", dst->size);
 
         // Start the timer
         struct timeval start, end;
@@ -85,16 +88,15 @@ int main() {
         long seconds = end.tv_sec - start.tv_sec;
         long microseconds = end.tv_usec - start.tv_usec;
         long total_microseconds = (seconds * 1000000) + microseconds;
+        double total_milliseconds = total_microseconds / 1000.0;
 
-        printf("Elapsed time: %ld microseconds\n", total_microseconds);
-
+        printf("%.3f\n", total_milliseconds);
         if (combine_status != 0) {
             fprintf(stderr, "Failed to combine valuations\n");
             free_valuation(dst);
             return -1;
         }
 
-        printf("Combined valuation size: %u\n", dst->size);
         // display_valuation(dst);
 
         // Free the allocated memory
