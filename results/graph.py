@@ -6,6 +6,15 @@ from datetime import datetime
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
+plt.rcParams['axes.titlesize'] = 18       # Title font size
+plt.rcParams['axes.labelsize'] = 16       # Axis label font size
+plt.rcParams['xtick.labelsize'] = 14      # X-axis tick font size
+plt.rcParams['ytick.labelsize'] = 14      # Y-axis tick font size
+plt.rcParams['legend.fontsize'] = 14      # Legend font size
+
+# add space between title and plot
+
+
 def generate_graph(files, title, filename):
     x_axis_val = 'arg_domain_size'
     y_axis_val = 'time'
@@ -45,9 +54,9 @@ def generate_graph(files, title, filename):
         if transfer_time_val in df.columns:
             plt.bar(x + i * bar_width, merged_df[label + transfer_suffix], width=bar_width, label=label + transfer_suffix, alpha=0.5)
 
-    plt.xlabel('Argument Domain Size')
-    plt.ylabel('Computation Time (ms)')
-    plt.title(title)
+    plt.xlabel('Arguments Domain Size (no. of variables)')
+    plt.ylabel('Time (ms)')
+    plt.title(title, pad=15)
 
     plt.xticks(x + bar_width * (len(files) + transfer_bars - 1) / 2, x_vals)
 
@@ -80,9 +89,9 @@ def generate_graph_from_single_file(file, x_axis_val, title, filename, label_map
     for i, col in enumerate(plot_columns):
         plt.bar(x + i * bar_width, df[col], width=bar_width, label=label_map[col])
 
-    plt.xlabel(x_axis_val.replace('_', ' ').title())
-    plt.ylabel('Value')
-    plt.title(title)
+    plt.xlabel('Arguments Domain Size (no. of variables)')
+    plt.ylabel('Time (ms)')
+    plt.title(title, pad=15)
 
     plt.xticks(x + bar_width * (len(plot_columns) - 1) / 2, x_vals)
     plt.yscale('log')
